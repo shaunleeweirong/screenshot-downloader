@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FullShot — Result</title>
+    <link rel="stylesheet" href="./results.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand"><span class="logo"></span> FullShot</div>
+      <div class="meta" id="meta"></div>
+      <div class="actions">
+        <input id="filename" class="filename" type="text" spellcheck="false" aria-label="File name" />
+        <button id="dl-png" class="btn primary">Download PNG</button>
+        <button id="dl-jpg" class="btn">JPG</button>
+        <button id="dl-pdf" class="btn">PDF</button>
+        <button id="copy" class="btn">Copy</button>
+      </div>
+    </header>
+    <main id="stage" class="stage">
+      <p id="loading" class="loading">Loading capture…</p>
+    </main>
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="./results.js"></script>
+  </body>
+</html>

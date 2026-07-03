@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FullShot</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <span>FullShot</span>
+      </div>
+      <button id="settings" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+    </header>
+
+    <main class="modes">
+      <button class="mode" data-mode="fullpage">
+        <span class="mode-icon">▤</span>
+        <span class="mode-label">Full page</span>
+        <span class="mode-sub">Scroll &amp; stitch the whole page</span>
+      </button>
+      <button class="mode" data-mode="visible">
+        <span class="mode-icon">▢</span>
+        <span class="mode-label">Visible area</span>
+        <span class="mode-sub">Just what's on screen</span>
+      </button>
+      <button class="mode" data-mode="region">
+        <span class="mode-icon">⛶</span>
+        <span class="mode-label">Selected region</span>
+        <span class="mode-sub">Drag to choose an area</span>
+      </button>
+    </main>
+
+    <footer class="foot">
+      <span id="status" class="status">100% local · nothing leaves your browser</span>
+    </footer>
+
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

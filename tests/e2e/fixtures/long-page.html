@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FullShot fixture</title>
+    <style>
+      * { margin: 0; box-sizing: border-box; }
+      body { font: 20px/1.4 system-ui, sans-serif; color: #fff; }
+      /* Sticky header: solid RED, full width. Should appear ONCE at the top of a
+         correct full-page capture, never repeated down the image. */
+      header {
+        position: sticky; top: 0; z-index: 10;
+        height: 80px; display: flex; align-items: center; justify-content: center;
+        background: #dc2626; color: #fff; font-weight: 700; letter-spacing: 2px;
+      }
+      section { height: 900px; display: flex; align-items: center; justify-content: center; font-size: 40px; }
+      .s1 { background: #1e3a8a; } /* blue  */
+      .s2 { background: #166534; } /* green */
+      .s3 { background: #6b21a8; } /* purple */
+    </style>
+  </head>
+  <body>
+    <header>STICKY-HEADER</header>
+    <section class="s1">SECTION ONE (blue)</section>
+    <section class="s2">SECTION TWO (green)</section>
+    <section class="s3">SECTION THREE (purple)</section>
+  </body>
+</html>
