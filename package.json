@@ -1,14 +1,15 @@
 {
   "name": "fullshot",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Full-page screenshot Chrome extension (privacy-first, minimal permissions)",
   "type": "module",
   "scripts": {
-    "gen:icons": "node scripts/gen-icons.mjs",
-    "build": "npm run gen:icons && tsc --noEmit && node scripts/build.mjs",
+    "gen:store-assets": "node scripts/gen-store-assets.mjs",
+    "build": "tsc --noEmit && node scripts/build.mjs",
     "build:only": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "package:store": "node scripts/package-store.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "FULLSHOT_E2E=1 node scripts/build.mjs && node tests/e2e/run.mjs"

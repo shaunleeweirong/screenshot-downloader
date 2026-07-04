@@ -58,6 +58,19 @@ The E2E suite loads the extension into a real browser and verifies every capture
 
 Build is a small deterministic esbuild script (`scripts/build.mjs`): page scripts + service worker as ESM, the content script as a self-contained IIFE (so it can be injected via `chrome.scripting.executeScript`), and static HTML/CSS/generated icons + `manifest.json` copied into `dist/`.
 
+## Privacy
+
+FullShot collects, transmits, and stores **nothing** off your device — no accounts, analytics, or servers. Full policy: **https://shaunleeweirong.github.io/screenshot-downloader/** (source in `docs/index.html`).
+
+## Chrome Web Store submission
+
+Everything needed to publish is prepared in-repo:
+- `npm run package:store` → `fullshot-store-v1.0.0.zip` (manifest.json at the ZIP root, as the store requires).
+- `npm run gen:store-assets` → icons + `store-assets/` (1280×800 screenshots + promo tiles), regenerated with Playwright.
+- `STORE_LISTING.md` → copy-paste text for every dashboard field (title, description, single-purpose, per-permission justifications, data-disclosure answers) plus the step-by-step submission guide.
+
+The submitter creates the Chrome Web Store developer account, pays the one-time $5 fee, uploads the ZIP, pastes the listing, and submits for review.
+
 ## Roadmap (post-MVP / future "Pro")
 
 Editor (crop/annotate/blur/arrows), datestamp/URL watermark, smart PDF page-breaks, cross-origin iframe traversal (needs broader permissions), and cloud/sharing — all gated behind the `LicenseService` seam. Monetization path: ExtensionPay or Stripe Checkout + a lightweight license validator.

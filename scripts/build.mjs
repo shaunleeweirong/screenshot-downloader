@@ -52,10 +52,11 @@ const iifeBuild = {
 
 const manifest = {
   manifest_version: 3,
-  name: 'FullShot — Full Page Screen Capture',
-  version: '0.1.0',
+  name: 'FullShot — Full Page & Region Screenshots',
+  version: '1.0.0',
   description:
-    'Capture full-page, visible-area, or selected-region screenshots. 100% local, minimal permissions. Export PNG, JPG, PDF.',
+    'Capture full-page, visible-area or region screenshots as PNG, JPG or PDF. 100% local, no account, minimal permissions.',
+  homepage_url: 'https://github.com/shaunleeweirong/screenshot-downloader',
   minimum_chrome_version: '116',
   action: { default_popup: 'popup.html', default_title: 'FullShot — capture this page', default_icon: {
     16: 'icons/icon-16.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' } },
