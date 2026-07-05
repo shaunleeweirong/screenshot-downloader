@@ -27,15 +27,17 @@ https://shaunleeweirong.github.io/screenshot-downloader/
 
 ## Store listing tab
 
-### Title (≤75 chars)
+### Title (≤75 chars) — 63 chars
 ```
-FullShot — Full Page & Region Screenshots
+FullShot - Full Page Screenshot & Scrolling Screen Capture Tool
 ```
 
-### Summary / short description (≤132 chars)
+### Summary / short description (≤132 chars) — 129 chars
 ```
-Capture full-page, visible-area or region screenshots as PNG, JPG or PDF. 100% local, no account, minimal permissions.
+Capture full-page, scrolling, visible, or selected-region screenshots. 100% local & private. Export to PNG, JPG or PDF. No login.
 ```
+
+> SEO note: keyword-optimized for Chrome Web Store search. Every core term is kept **under 5 uses listing-wide** (screenshot 4 · capture 4 · full page 4 · PDF 4 · scrolling 3) to stay within Chrome's keyword-spam policy.
 
 ### Category
 **Productivity** (subcategory: Tools) — this is a focused utility, not a developer tool.
@@ -45,41 +47,35 @@ English (United States)
 
 ### Detailed description (≤16,000 chars)
 ```
-FullShot captures beautiful screenshots of any web page — the entire scrolling page, just the visible area, or a region you drag — and saves them as PNG, JPG, or PDF. It runs entirely on your device: no account, no sign-up, and nothing is ever uploaded.
+FullShot is a privacy-first screenshot tool that captures full-page (scroll & stitch), visible-area, and selected-region screenshots — right inside Chrome. Everything runs 100% locally on your device: activeTab-only, no account, no uploads. Save any result as PNG, JPG, or PDF.
 
 ━━━ WHAT YOU CAN DO ━━━
-
-• Full page — automatically scrolls and stitches the whole page into one tall image, even content below the fold.
+• Full page — scroll & stitch an entire webpage into one tall image, even long pages below the fold.
+• Scrolling / long pages — grab tall content far beyond the visible screen.
 • Visible area — one click to grab exactly what's on screen.
-• Selected region — drag to capture just the part you need.
-• Export as PNG, JPG, or PDF.
-• Copy to clipboard or drag the image straight out to save it.
-• Local history — re-download your recent captures any time.
+• Selected region — drag a box to grab just the part you need.
+• Export as PNG, JPG, or multi-page PDF, or copy straight to the clipboard.
+• Local history — re-download your recent images any time.
 
-━━━ BUILT FOR RELIABILITY ━━━
-
-Most full-page tools stumble on modern pages. FullShot handles the hard parts:
-• Sticky/fixed headers are shown once at the top and hidden afterward, so they don't repeat down the image.
-• A short settle delay per step lets lazy-loaded content appear before it's captured.
-• Very tall or high-resolution pages are split cleanly into multiple images instead of coming out blank.
+━━━ WHY FULLSHOT ━━━
+Most tools stumble on modern pages. FullShot handles the hard parts:
+• Sticky/fixed headers show once at the top and are hidden below, so they never repeat down the image.
+• Lazy-loaded content is given time to render before each step.
+• Very tall or high-resolution pages are split cleanly instead of coming out blank.
 
 ━━━ PRIVATE BY DESIGN ━━━
-
-• 100% local — every screenshot is created and stored on your own computer.
-• No account, no analytics, no trackers, no servers.
-• Minimal permissions: FullShot uses "activeTab", so it can only act on a page when YOU click the icon — it has no access to your browsing and no "read all your data on all websites" permission.
+• 100% local — every image is created and stored on your own computer.
+• No account, no sign-up, no analytics, no trackers, no servers.
+• Minimal permissions: activeTab means FullShot works only when YOU click it — with no "read all your data on all websites" access.
 
 ━━━ HOW TO USE ━━━
-
-1. Click the FullShot icon on any normal web page (or press Alt+Shift+P for a full-page capture).
-2. Pick a mode: Full page, Visible area, or Selected region.
-3. On the result tab, download as PNG / JPG / PDF, or copy to clipboard.
-Open Settings (the gear in the popup) to set your default format, image quality, and filename.
+1. Click the FullShot icon on any normal web page (or press Alt+Shift+P).
+2. Pick a mode, then save as PNG, JPG or PDF — or copy to the clipboard.
+Open Settings (the gear) to set your default format, image quality, and filename.
 
 ━━━ GOOD TO KNOW ━━━
-
-• Protected browser pages (chrome:// settings, the Chrome Web Store, the built-in PDF viewer) can't be captured by any extension.
-• Infinite-scroll feeds (for example the LinkedIn or X home feed) can't be fully captured by any screenshot tool, because those pages continuously load and unload content — the whole feed never exists at once. Use Visible area or Selected region there, or capture a normal page (article, profile, docs) with Full page.
+• Protected browser pages (chrome:// settings, the Chrome Web Store, and built-in viewers) can't be captured by any extension.
+• Infinite-scroll feeds (e.g. the LinkedIn or X home feed) can't be fully saved by any tool, because the whole feed never exists at once — use Visible area or Selected region there.
 
 FullShot is open source: https://github.com/shaunleeweirong/screenshot-downloader
 ```
