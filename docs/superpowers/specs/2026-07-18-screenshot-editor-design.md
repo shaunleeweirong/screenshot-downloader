@@ -54,7 +54,7 @@ src/lib/editor/
   geometry.ts     arrowhead points, bounding boxes, resize-handle positions
   hit-test.ts     point→annotation and point→handle hit testing
   transform.ts    display↔image coordinate mapping (scaled canvas ↔ full-res pixels)
-  crop.ts         crop-rect math + reprojection of existing annotations after a crop
+  crop.ts         crop-rect clamping (crop is an export-time region; flatten copies it)
   pixelate.ts     mosaic/redact a region of ImageData (pure: pixels + rect + block → pixels)
   render.ts       draw one annotation to a 2D context (thin; geometry lives in geometry.ts)
   flatten.ts      compose background + annotations → Blob at full resolution
@@ -124,8 +124,10 @@ the standard, effective redaction for screenshots and reinforces FullShot's priv
 - **Text**: an overlaid HTML `<input>`/contentEditable captures typing; committing creates a
   `text` object (avoids painful raw-canvas text editing).
 - **Step**: click drops an auto-incrementing numbered badge; `Scene.nextStep` tracks the counter.
-- **Crop**: drag a rect; applying it sets the export viewport and reprojects existing annotation
-  coordinates via `crop.ts` (subtract crop origin), and updates displayed dimensions.
+- **Crop**: drag a rect to set the export region (`cropRect`, editor state — not part of the
+  scene); the area outside is dimmed to preview the result. No coordinate reprojection —
+  `flatten` composes annotations at full-image coordinates and then copies the crop region, so
+  the offset is applied automatically. `resetCrop()` clears it.
 
 ## 8. Export / flatten
 
@@ -145,7 +147,7 @@ Matches the existing Vitest (unit) + Playwright (E2E) setup.
 - `scene`: add/update/remove/reorder immutability.
 - `history`: undo/redo, bounded stack, redo cleared on new edit.
 - `transform`: display↔image round-trips at various DPRs/scales.
-- `crop`: annotation reprojection and output-dimension math.
+- `crop`: `clampCrop` keeps the region inside the image (top-left overflow, bottom-right shrink, min 1×1).
 - `pixelate`: block-average correctness on known ImageData arrays.
 - `step`: auto-increment and renumber behavior.
 
