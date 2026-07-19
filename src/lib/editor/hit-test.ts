@@ -1,7 +1,8 @@
-import type { Annotation, Point, Scene } from './types';
-import { boundsOf, handlesOf, type Handle } from './geometry';
+import type { Annotation, Box, Point, Scene } from './types';
+import { boundsOf, cornerHandles, handlesOf, type Handle } from './geometry';
 
-function inBox(p: Point, b: { x: number; y: number; w: number; h: number }, pad: number): boolean {
+/** True when `p` is inside `b` (optionally expanded by `pad` on every side). */
+export function pointInBox(p: Point, b: Box, pad = 0): boolean {
   return p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad;
 }
 
@@ -20,7 +21,7 @@ export function hitAnnotation(scene: Scene, p: Point, tol = 6): Annotation | nul
     const a = scene.annotations[i];
     if (a.type === 'arrow' || a.type === 'line') {
       if (distToSegment(p, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= tol + a.style.strokeWidth) return a;
-    } else if (inBox(p, boundsOf(a), tol)) {
+    } else if (pointInBox(p, boundsOf(a), tol)) {
       return a;
     }
   }
@@ -29,6 +30,14 @@ export function hitAnnotation(scene: Scene, p: Point, tol = 6): Annotation | nul
 
 export function hitHandle(a: Annotation, p: Point, tol = 8): Handle | null {
   for (const h of handlesOf(a)) {
+    if (Math.hypot(p.x - h.x, p.y - h.y) <= tol) return h;
+  }
+  return null;
+}
+
+/** Which corner handle of an arbitrary box (e.g. the crop rect) `p` is grabbing, if any. */
+export function hitBoxHandle(b: Box, p: Point, tol = 8): Handle | null {
+  for (const h of cornerHandles(b)) {
     if (Math.hypot(p.x - h.x, p.y - h.y) <= tol) return h;
   }
   return null;

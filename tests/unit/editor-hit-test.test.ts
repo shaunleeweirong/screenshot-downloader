@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { distToSegment, hitAnnotation, hitHandle } from '../../src/lib/editor/hit-test';
+import { distToSegment, hitAnnotation, hitHandle, hitBoxHandle, pointInBox } from '../../src/lib/editor/hit-test';
 import type { Annotation, Scene } from '../../src/lib/editor/types';
 
 const S = { stroke: '#f00', strokeWidth: 4, fill: 'none', opacity: 1, fontSize: 24 };
@@ -26,5 +26,17 @@ describe('hit testing', () => {
   it('hitHandle finds a corner handle', () => {
     expect(hitHandle(rectA, { x: 50, y: 50 })!.id).toBe('se');
     expect(hitHandle(rectA, { x: 25, y: 25 })).toBeNull();
+  });
+  it('hitBoxHandle finds a crop-box corner handle', () => {
+    const box = { x: 0, y: 0, w: 100, h: 100 };
+    expect(hitBoxHandle(box, { x: 100, y: 100 })!.id).toBe('se');
+    expect(hitBoxHandle(box, { x: 0, y: 0 })!.id).toBe('nw');
+    expect(hitBoxHandle(box, { x: 50, y: 50 })).toBeNull();
+  });
+  it('pointInBox respects padding', () => {
+    const box = { x: 10, y: 10, w: 20, h: 20 };
+    expect(pointInBox({ x: 15, y: 15 }, box)).toBe(true);
+    expect(pointInBox({ x: 32, y: 15 }, box)).toBe(false);
+    expect(pointInBox({ x: 32, y: 15 }, box, 5)).toBe(true);
   });
 });

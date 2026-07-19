@@ -3,8 +3,8 @@ import {
 } from '../lib/editor/types';
 import { addAnnotation, removeAnnotation, updateAnnotation } from '../lib/editor/scene';
 import { History } from '../lib/editor/history';
-import { boundsOf, handlesOf, translateAnnot, resizeAnnot, type Handle } from '../lib/editor/geometry';
-import { hitAnnotation, hitHandle } from '../lib/editor/hit-test';
+import { boundsOf, cornerHandles, handlesOf, resizeBox, translateAnnot, resizeAnnot, type Handle } from '../lib/editor/geometry';
+import { hitAnnotation, hitHandle, hitBoxHandle, pointInBox } from '../lib/editor/hit-test';
 import { makeView, toImage, type View } from '../lib/editor/transform';
 import { clampCrop } from '../lib/editor/crop';
 import { composeToContext, flatten, type ComposeCtx } from '../lib/editor/flatten';
@@ -38,6 +38,9 @@ export class EditorController {
   private moveHandle: Handle | null = null;
   private movingFrom: Point | null = null;
   private dragMoved = false;
+  // crop drag state
+  private cropHandle: Handle | null = null;
+  private cropMoveFrom: Point | null = null;
 
   constructor(host: HTMLElement, source: ImageBitmap, onChange?: () => void) {
     this.host = host;
@@ -96,6 +99,19 @@ export class EditorController {
             r.readAsDataURL(blob);
           });
         },
+        // Introspection for E2E assertions.
+        getScene: () => this.scene,
+        getSelected: () => this.selectedId,
+        getCropRect: () => this.cropRect ?? null,
+        getTool: () => this.tool,
+        selectAt: (pt: Point) => {
+          const hit = hitAnnotation(this.scene, pt, 6 * this.view.scale);
+          this.selectedId = hit ? hit.id : null;
+          this.tool = 'select';
+          this.redraw();
+          this.syncUi();
+          return this.selectedId;
+        },
       };
     }
   }
@@ -104,14 +120,36 @@ export class EditorController {
     this.tool = tool;
     if (tool !== 'select') this.selectedId = null;
     this.redraw();
+    this.syncUi();
   }
   setColor(c: string): void {
     this.style = { ...this.style, stroke: c };
-    if (this.selectedId) this.commit(updateAnnotation(this.scene, this.selectedId, { style: { ...this.style } } as Partial<Annotation>));
+    const sel = this.selectedAnnot();
+    if (sel && sel.type !== 'blur') {
+      this.commit(updateAnnotation(this.scene, sel.id, { style: { ...sel.style, stroke: c } } as Partial<Annotation>));
+    }
   }
   setStrokeWidth(n: number): void {
     this.style = { ...this.style, strokeWidth: n };
-    if (this.selectedId) this.commit(updateAnnotation(this.scene, this.selectedId, { style: { ...this.style } } as Partial<Annotation>));
+    const sel = this.selectedAnnot();
+    if (sel && sel.type !== 'blur') {
+      this.commit(updateAnnotation(this.scene, sel.id, { style: { ...sel.style, strokeWidth: n } } as Partial<Annotation>));
+    }
+  }
+
+  private selectedAnnot(): Annotation | undefined {
+    return this.selectedId ? this.scene.annotations.find((a) => a.id === this.selectedId) : undefined;
+  }
+
+  /** Snapshot for the toolbar: current tool + the style the controls should reflect. */
+  getUiState(): { tool: Tool; style: Style } {
+    const sel = this.selectedAnnot();
+    const style = sel && sel.type !== 'blur' ? sel.style : this.style;
+    return { tool: this.tool, style };
+  }
+
+  private syncUi(): void {
+    this.onChange?.();
   }
 
   undo(): void { this.working = this.history.undo(); this.selectedId = null; this.redraw(); this.onChange?.(); }
@@ -153,19 +191,25 @@ export class EditorController {
     const p = this.ptFromEvent(e);
     this.dragStart = p;
     this.dragMoved = false;
+    // Hit tolerances are in image px; scale them so grabbing stays easy when the
+    // canvas is displayed smaller than its native resolution.
+    const handleTol = 8 * this.view.scale;
+
     if (this.tool === 'select') {
       if (this.selectedId) {
         const sel = this.scene.annotations.find((a) => a.id === this.selectedId);
-        const handle = sel ? hitHandle(sel, p) : null;
+        const handle = sel ? hitHandle(sel, p, handleTol) : null;
         if (handle) { this.moveHandle = handle; return; }
       }
-      const hit = hitAnnotation(this.scene, p);
+      const hit = hitAnnotation(this.scene, p, 6 * this.view.scale);
       this.selectedId = hit ? hit.id : null;
       this.movingFrom = hit ? p : null;
       this.redraw();
+      this.syncUi();
       return;
     }
     if (this.tool === 'text') {
+      e.preventDefault(); // keep the default pointerdown focus change from stealing focus
       this.spawnTextInput(p);
       this.dragStart = null;
       return;
@@ -175,7 +219,16 @@ export class EditorController {
       this.dragStart = null;
       return;
     }
-    // draw + crop tools: begin a draft; nothing is committed to history until release
+    if (this.tool === 'crop') {
+      this.draftId = nextId(); // marks an active crop drag
+      if (this.cropRect) {
+        const h = hitBoxHandle(this.cropRect, p, handleTol);
+        if (h) { this.cropHandle = h; return; }          // resize an existing crop
+        if (pointInBox(p, this.cropRect)) { this.cropMoveFrom = p; return; } // move it
+      }
+      return; // otherwise a fresh crop rect is drawn on move
+    }
+    // draw tools: begin a draft; nothing is committed to history until release
     const id = nextId();
     this.draftId = id;
     const a = this.makeDraft(this.tool, id, p);
@@ -188,10 +241,23 @@ export class EditorController {
 
     // Crop only adjusts editor state (cropRect) — never the scene/history.
     if (this.tool === 'crop' && this.draftId) {
-      this.cropRect = clampCrop(
-        { x: Math.min(this.dragStart.x, p.x), y: Math.min(this.dragStart.y, p.y), w: Math.abs(p.x - this.dragStart.x), h: Math.abs(p.y - this.dragStart.y) },
-        { w: this.source.width, h: this.source.height },
-      );
+      const bounds = { w: this.source.width, h: this.source.height };
+      if (this.cropHandle && this.cropRect) {
+        this.cropRect = clampCrop(resizeBox(this.cropRect, this.cropHandle.id, p), bounds);
+      } else if (this.cropMoveFrom && this.cropRect) {
+        const dx = p.x - this.cropMoveFrom.x, dy = p.y - this.cropMoveFrom.y;
+        this.cropMoveFrom = p;
+        this.cropRect = {
+          ...this.cropRect,
+          x: Math.max(0, Math.min(this.cropRect.x + dx, bounds.w - this.cropRect.w)),
+          y: Math.max(0, Math.min(this.cropRect.y + dy, bounds.h - this.cropRect.h)),
+        };
+      } else {
+        this.cropRect = clampCrop(
+          { x: Math.min(this.dragStart.x, p.x), y: Math.min(this.dragStart.y, p.y), w: Math.abs(p.x - this.dragStart.x), h: Math.abs(p.y - this.dragStart.y) },
+          bounds,
+        );
+      }
       this.redraw();
       return;
     }
@@ -218,17 +284,26 @@ export class EditorController {
   };
 
   private onUp = (): void => {
-    if (this.draftId && this.tool !== 'crop' && !this.dragMoved) {
+    const wasDraw = !!this.draftId && this.tool !== 'crop';
+    if (wasDraw && !this.dragMoved) {
       // a click with no drag on a draw tool: discard the zero-size draft
-      this.setWorking(removeAnnotation(this.working, this.draftId));
+      this.setWorking(removeAnnotation(this.working, this.draftId!));
     } else if (this.dragMoved) {
       this.history.push(this.working);
+      if (wasDraw) {
+        // Auto-select the shape just drawn so it can be restyled/resized/deleted at once.
+        this.selectedId = this.draftId;
+        this.tool = 'select';
+        this.redraw();
+      }
       this.onChange?.();
     }
     this.dragStart = null;
     this.draftId = null;
     this.moveHandle = null;
     this.movingFrom = null;
+    this.cropHandle = null;
+    this.cropMoveFrom = null;
     this.dragMoved = false;
   };
 
@@ -271,7 +346,6 @@ export class EditorController {
     input.style.font = `${this.style.fontSize / this.view.scale}px system-ui, sans-serif`;
     input.style.color = this.style.stroke;
     document.body.appendChild(input);
-    input.focus();
     let done = false;
     const commit = () => {
       if (done) return;
@@ -284,7 +358,12 @@ export class EditorController {
       if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
       if (ev.key === 'Escape') { done = true; input.remove(); }
     });
-    input.addEventListener('blur', commit);
+    // Focus on the next frame (after the pointerdown default settles) and only then
+    // wire blur→commit, so the initial focus churn can't commit-and-remove an empty box.
+    requestAnimationFrame(() => {
+      input.focus();
+      input.addEventListener('blur', commit);
+    });
   }
 
   private redraw(): void {
@@ -326,6 +405,9 @@ export class EditorController {
     c.strokeStyle = '#22c55e';
     c.lineWidth = Math.max(2, this.view.scale * 2);
     c.strokeRect(x, y, w, h);
+    const hs = 5 * this.view.scale;
+    c.fillStyle = '#22c55e';
+    for (const hnd of cornerHandles(this.cropRect)) c.fillRect(hnd.x - hs, hnd.y - hs, hs * 2, hs * 2);
     c.restore();
   }
 }

@@ -268,6 +268,118 @@ try {
       check('editor: capture for blur', false, JSON.stringify(res));
     }
   }
+
+  // Open a fresh capture in the editor and return the canvas box + an image->client
+  // coordinate mapper, for tests that drive the editor with REAL pointer events.
+  const openEditor = async () => {
+    await fixture.bringToFront();
+    await fixture.evaluate(() => window.scrollTo(0, 0));
+    const res = await sw.evaluate(() => globalThis.__fsCaptureActive('visible'));
+    if (!res || !res.ok || !res.recordId) return null;
+    await analysisPage.goto(`chrome-extension://${id}/results.html?id=${res.recordId}`, { waitUntil: 'load' });
+    await analysisPage.waitForSelector('.stage img', { timeout: 8000 });
+    await analysisPage.bringToFront();
+    await analysisPage.click('#edit-toggle');
+    await analysisPage.waitForSelector('.editor-canvas', { timeout: 8000 });
+    const box = await analysisPage.locator('.editor-canvas').boundingBox();
+    const scale = await analysisPage.evaluate(() => {
+      const cv = document.querySelector('.editor-canvas');
+      return cv.width / cv.getBoundingClientRect().width;
+    });
+    const toClient = (ix, iy) => ({ x: box.x + ix / scale, y: box.y + iy / scale });
+    return { box, scale, toClient };
+  };
+  const dragClient = async (a, b) => {
+    await analysisPage.mouse.move(a.x, a.y);
+    await analysisPage.mouse.down();
+    await analysisPage.mouse.move(b.x, b.y, { steps: 6 });
+    await analysisPage.mouse.up();
+  };
+
+  // ---------- 8. Editor: Text tool creates a text annotation (real click + typing) ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      await analysisPage.click('#editor-toolbar [data-tool="text"]');
+      await analysisPage.mouse.click(ed.box.x + 80, ed.box.y + 80); // spawns the floating input
+      // The input focuses on the next frame; wait for that, then type.
+      await analysisPage.waitForFunction(
+        () => document.activeElement && document.activeElement.classList.contains('editor-text-input'),
+        null,
+        { timeout: 4000 },
+      );
+      await analysisPage.keyboard.type('HELLO');
+      await analysisPage.keyboard.press('Enter');
+      const hasText = await analysisPage.evaluate(() =>
+        window.__fsEditor.getScene().annotations.some((a) => a.type === 'text' && a.text === 'HELLO'));
+      check('editor: text tool creates a text annotation', hasText);
+    } else {
+      check('editor: capture for text', false);
+    }
+  }
+
+  // ---------- 9. Editor: select -> resize -> restyle -> delete ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      // Draw a rectangle; it should auto-select and switch to the select tool.
+      await analysisPage.click('#editor-toolbar [data-tool="rect"]');
+      await dragClient(ed.toClient(100, 100), ed.toClient(300, 260));
+      const afterDraw = await analysisPage.evaluate(() => ({
+        tool: window.__fsEditor.getTool(),
+        selected: window.__fsEditor.getSelected(),
+        rect: window.__fsEditor.getScene().annotations.find((x) => x.type === 'rect'),
+      }));
+      check('editor: drawing a shape auto-selects it (tool -> select)',
+        afterDraw.tool === 'select' && !!afterDraw.selected && !!afterDraw.rect,
+        `tool=${afterDraw.tool} sel=${afterDraw.selected}`);
+
+      // Resize via the SE corner handle.
+      const r0 = afterDraw.rect;
+      await dragClient(ed.toClient(r0.x + r0.w, r0.y + r0.h), ed.toClient(r0.x + r0.w + 80, r0.y + r0.h + 60));
+      const r1 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'rect'));
+      check('editor: dragging a corner handle resizes the selection',
+        r1 && r1.w > r0.w + 40 && r1.h > r0.h + 30, `${r0.w}x${r0.h} -> ${r1 && r1.w}x${r1 && r1.h}`);
+
+      // Change thickness via the width slider; color must be preserved.
+      const strokeBefore = r1.style.stroke;
+      await analysisPage.evaluate(() => {
+        const w = document.getElementById('tool-width');
+        w.value = '16';
+        w.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const r2 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'rect'));
+      check('editor: width slider changes thickness of the selection (color preserved)',
+        !!r2 && r2.style.strokeWidth === 16 && r2.style.stroke === strokeBefore,
+        `w=${r2 && r2.style.strokeWidth} stroke=${r2 && r2.style.stroke}`);
+
+      // Delete via the trash button.
+      await analysisPage.click('#tool-delete');
+      const gone = await analysisPage.evaluate(() => !window.__fsEditor.getScene().annotations.some((x) => x.type === 'rect'));
+      check('editor: delete removes the selected element', gone);
+    } else {
+      check('editor: capture for select/resize', false);
+    }
+  }
+
+  // ---------- 10. Editor: crop box is resizable by its handle ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      await analysisPage.click('#editor-toolbar [data-tool="crop"]');
+      await dragClient(ed.toClient(60, 60), ed.toClient(300, 300));
+      const c1 = await analysisPage.evaluate(() => window.__fsEditor.getCropRect());
+      check('editor: crop drag creates a crop region', !!c1 && c1.w > 0 && c1.h > 0, JSON.stringify(c1));
+      if (c1) {
+        await dragClient(ed.toClient(c1.x + c1.w, c1.y + c1.h), ed.toClient(c1.x + c1.w - 100, c1.y + c1.h - 80));
+        const c2 = await analysisPage.evaluate(() => window.__fsEditor.getCropRect());
+        check('editor: dragging a crop handle resizes the crop box',
+          !!c2 && Math.abs(c2.w - c1.w) > 40, `${c1.w} -> ${c2 && c2.w}`);
+      }
+    } else {
+      check('editor: capture for crop-resize', false);
+    }
+  }
 } catch (e) {
   console.log('FATAL ' + (e && e.stack ? e.stack : String(e)));
   results.push({ name: 'fatal error', ok: false });
