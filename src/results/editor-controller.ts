@@ -233,6 +233,7 @@ export class EditorController {
   };
 
   private onKey = (e: KeyboardEvent): void => {
+    if (document.activeElement instanceof HTMLInputElement) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) { e.preventDefault(); this.deleteSelected(); }
     else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); this.undo(); }
     else if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); this.redo(); }
