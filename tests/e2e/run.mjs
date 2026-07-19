@@ -419,6 +419,35 @@ try {
       check('editor: capture for arrow-resize', false);
     }
   }
+
+  // ---------- 13. Editor: edits persist after pressing "Done" ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      const cw = ed.box.width * ed.scale, ch = ed.box.height * ed.scale;
+      await analysisPage.click('#editor-toolbar [data-tool="arrow"]');
+      await dragClient(ed.toClient(cw * 0.2, ch * 0.5), ed.toClient(cw * 0.8, ch * 0.5));
+      await analysisPage.click('#edit-toggle'); // "Done"
+      const after = await analysisPage.evaluate(() => {
+        const cv = document.querySelector('.editor-canvas');
+        if (!cv) return { hasCanvas: false, red: 0, toolbarHidden: null, imgShown: null };
+        const cx = cv.getContext('2d');
+        const row = cx.getImageData(0, Math.floor(cv.height * 0.5), cv.width, 1).data;
+        let red = 0;
+        for (let x = 0; x < cv.width; x++) { const i = x * 4; if (row[i] > 180 && row[i + 1] < 90 && row[i + 2] < 90) red++; }
+        const img = document.querySelector('.stage img');
+        return { hasCanvas: true, red, toolbarHidden: document.getElementById('editor-toolbar').hidden, imgShown: !!img && img.offsetParent !== null };
+      });
+      check('editor: annotated canvas persists after Done (toolbar hidden, edits visible)',
+        after.hasCanvas && after.red > 20 && after.toolbarHidden === true && after.imgShown === false, JSON.stringify(after));
+      // Re-enter edit — the same scene resumes.
+      await analysisPage.click('#edit-toggle');
+      const resumed = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.some((a) => a.type === 'arrow'));
+      check('editor: re-entering Edit resumes the same scene', resumed);
+    } else {
+      check('editor: capture for persist', false);
+    }
+  }
 } catch (e) {
   console.log('FATAL ' + (e && e.stack ? e.stack : String(e)));
   results.push({ name: 'fatal error', ok: false });
