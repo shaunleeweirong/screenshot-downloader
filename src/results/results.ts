@@ -3,6 +3,7 @@ import { getRecord, getBlobs } from '../lib/storage/history';
 import { loadSettings } from '../lib/storage/settings';
 import { buildFilename } from '../lib/export/filename';
 import type { CaptureRecord, ExportFormat, Settings } from '../lib/types';
+import { EditorController } from './editor-controller';
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id') ?? '';
@@ -24,6 +25,12 @@ const buttons = {
 let record: CaptureRecord | undefined;
 let blobs: Blob[] = [];
 let settings: Settings;
+
+let editor: EditorController | null = null;
+let editing = false;
+let toolbarAbort: AbortController | null = null;
+const editToggle = document.getElementById('edit-toggle') as HTMLButtonElement;
+const toolbar = document.getElementById('editor-toolbar') as HTMLElement;
 
 function toast(text: string): void {
   toastEl.textContent = text;
@@ -76,16 +83,69 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-async function buildPdf(): Promise<Blob> {
+async function bitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
+  return createImageBitmap(blob);
+}
+
+async function enterEditMode(): Promise<void> {
+  if (editing || blobs.length !== 1) return;
+  editing = true;
+  editToggle.textContent = 'Done';
+  editToggle.classList.add('primary');
+  toolbar.hidden = false;
+  stage.classList.add('editing');
+  const source = await bitmapFromBlob(blobs[0]);
+  editor = new EditorController(stage, source);
+  editor.mount();
+  editor.setTool('select');
+
+  toolbarAbort = new AbortController();
+  const { signal } = toolbarAbort;
+  toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((b) => {
+    b.addEventListener('click', () => {
+      toolbar.querySelectorAll('.tool').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      const tool = b.dataset.tool as Parameters<EditorController['setTool']>[0];
+      editor!.setTool(tool);
+      (document.getElementById('tool-crop-reset') as HTMLElement).hidden = tool !== 'crop';
+    }, { signal });
+  });
+  (document.getElementById('tool-color') as HTMLInputElement).addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
+  (document.getElementById('tool-width') as HTMLInputElement).addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
+  document.getElementById('tool-undo')!.addEventListener('click', () => editor!.undo(), { signal });
+  document.getElementById('tool-redo')!.addEventListener('click', () => editor!.redo(), { signal });
+  document.getElementById('tool-delete')!.addEventListener('click', () => editor!.deleteSelected(), { signal });
+  document.getElementById('tool-crop-reset')!.addEventListener('click', () => editor!.resetCrop(), { signal });
+}
+
+function exitEditMode(): void {
+  if (!editing) return;
+  toolbarAbort?.abort();
+  toolbarAbort = null;
+  editing = false;
+  editToggle.textContent = 'Edit';
+  editToggle.classList.remove('primary');
+  toolbar.hidden = true;
+  stage.classList.remove('editing');
+  editor?.destroy();
+  editor = null;
+}
+
+async function currentExportBlobs(): Promise<Blob[]> {
+  if (editor && editor.hasEdits()) return [await editor.export()];
+  return blobs;
+}
+
+async function buildPdf(source: Blob[]): Promise<Blob> {
   let doc: jsPDF | undefined;
-  for (let i = 0; i < blobs.length; i++) {
-    const bmp = await createImageBitmap(blobs[i]);
+  for (let i = 0; i < source.length; i++) {
+    const bmp = await createImageBitmap(source[i]);
     const w = bmp.width;
     const h = bmp.height;
     const orientation = w > h ? 'l' : 'p';
     if (!doc) doc = new jsPDF({ orientation, unit: 'px', format: [w, h] });
     else doc.addPage([w, h], orientation);
-    const dataUrl = await blobToDataUrl(blobs[i]);
+    const dataUrl = await blobToDataUrl(source[i]);
     doc.addImage(dataUrl, 'PNG', 0, 0, w, h);
     bmp.close();
   }
@@ -93,28 +153,32 @@ async function buildPdf(): Promise<Blob> {
 }
 
 async function downloadPng(): Promise<void> {
-  if (blobs.length === 1) downloadBlob(blobs[0], nameFor('png'));
-  else blobs.forEach((b, i) => downloadBlob(b, nameFor('png', i)));
+  const bl = await currentExportBlobs();
+  if (bl.length === 1) downloadBlob(bl[0], nameFor('png'));
+  else bl.forEach((b, i) => downloadBlob(b, nameFor('png', i)));
   toast('Downloaded PNG');
 }
 
 async function downloadJpg(): Promise<void> {
-  for (let i = 0; i < blobs.length; i++) {
-    const jpg = await toJpeg(blobs[i], settings.jpegQuality);
-    downloadBlob(jpg, nameFor('jpg', i));
+  const bl = await currentExportBlobs();
+  for (let i = 0; i < bl.length; i++) {
+    const jpg = await toJpeg(bl[i], settings.jpegQuality);
+    downloadBlob(jpg, nameFor('jpg', bl.length > 1 ? i : undefined));
   }
   toast('Downloaded JPG');
 }
 
 async function downloadPdf(): Promise<void> {
-  const pdf = await buildPdf();
+  const bl = await currentExportBlobs();
+  const pdf = await buildPdf(bl);
   downloadBlob(pdf, nameFor('pdf'));
   toast('Downloaded PDF');
 }
 
 async function copyToClipboard(): Promise<void> {
   try {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobs[0] })]);
+    const bl = await currentExportBlobs();
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': bl[0] })]);
     toast('Copied to clipboard');
   } catch {
     toast('Copy failed — try downloading instead');
@@ -163,6 +227,13 @@ async function main(): Promise<void> {
   document.title = `FullShot — ${record.title || 'Result'}`;
 
   render();
+
+  if (blobs.length === 1) {
+    editToggle.addEventListener('click', () => (editing ? exitEditMode() : void enterEditMode()));
+  } else {
+    editToggle.disabled = true;
+    editToggle.title = 'Editing is unavailable for very large multi-part captures';
+  }
 
   buttons.png.addEventListener('click', () => void downloadPng());
   buttons.jpg.addEventListener('click', () => void downloadJpg());

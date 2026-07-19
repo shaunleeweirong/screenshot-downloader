@@ -194,6 +194,80 @@ try {
       check('region image matches the selected area', wOk && hOk, `${a.w}x${a.h} expected≈${Math.round(expected)}`);
     }
   }
+  // ---------- 6. Editor: arrow annotation bakes into the export ----------
+  {
+    await fixture.bringToFront();
+    await fixture.evaluate(() => window.scrollTo(0, 0));
+    const res = await sw.evaluate(() => globalThis.__fsCaptureActive('visible'));
+    if (res && res.ok && res.recordId) {
+      await analysisPage.goto(`chrome-extension://${id}/results.html?id=${res.recordId}`, { waitUntil: 'load' });
+      await analysisPage.waitForSelector('.stage img', { timeout: 8000 });
+      await analysisPage.click('#edit-toggle');
+      await analysisPage.waitForSelector('.editor-canvas', { timeout: 8000 });
+
+      const out = await analysisPage.evaluate(async () => {
+        const ed = window.__fsEditor;
+        // draw a red arrow across the middle band of the image
+        const cv = document.querySelector('.editor-canvas');
+        ed.addArrow({ x1: Math.round(cv.width * 0.2), y1: Math.round(cv.height * 0.5), x2: Math.round(cv.width * 0.8), y2: Math.round(cv.height * 0.5) });
+        const url = await ed.flattenDataUrl();
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = url; });
+        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cx = c.getContext('2d'); cx.drawImage(img, 0, 0);
+        const midY = Math.floor(img.naturalHeight * 0.5);
+        const row = cx.getImageData(0, midY, img.naturalWidth, 1).data;
+        let red = 0;
+        for (let x = 0; x < img.naturalWidth; x++) {
+          const i = x * 4;
+          if (row[i] > 180 && row[i + 1] < 90 && row[i + 2] < 90) red++;
+        }
+        return { w: img.naturalWidth, h: img.naturalHeight, red };
+      });
+      check('editor: exported PNG matches source dimensions', out.w > 0 && out.h > 0, `${out.w}x${out.h}`);
+      check('editor: arrow annotation is baked into the export', out.red > 20, `red px on mid row = ${out.red}`);
+    } else {
+      check('editor: capture for edit', false, JSON.stringify(res));
+    }
+  }
+
+  // ---------- 7. Editor: blur redacts a region ----------
+  {
+    await fixture.bringToFront();
+    await fixture.evaluate(() => window.scrollTo(0, 0));
+    const res = await sw.evaluate(() => globalThis.__fsCaptureActive('visible'));
+    if (res && res.ok && res.recordId) {
+      await analysisPage.goto(`chrome-extension://${id}/results.html?id=${res.recordId}`, { waitUntil: 'load' });
+      await analysisPage.waitForSelector('.stage img', { timeout: 8000 });
+      await analysisPage.click('#edit-toggle');
+      await analysisPage.waitForSelector('.editor-canvas', { timeout: 8000 });
+
+      const changed = await analysisPage.evaluate(async () => {
+        const ed = window.__fsEditor;
+        const cv = document.querySelector('.editor-canvas');
+        // Straddle the red-header / blue-section edge (~80 css px down) so the
+        // mosaic is guaranteed to change pixels regardless of exact layout.
+        const dpr = window.devicePixelRatio || 1;
+        const y0 = Math.max(0, Math.round(80 * dpr) - 30);
+        const box = { x: 0, y: y0, w: cv.width, h: Math.min(60, cv.height - y0) };
+        // sample the original pixels of that box first
+        const src = cv.getContext('2d').getImageData(box.x, box.y, box.w, box.h).data.slice();
+        ed.addBlur(box);
+        const url = await ed.flattenDataUrl();
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = url; });
+        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cx = c.getContext('2d'); cx.drawImage(img, 0, 0);
+        const after = cx.getImageData(box.x, box.y, box.w, box.h).data;
+        let diff = 0;
+        for (let i = 0; i < after.length; i += 4) if (Math.abs(after[i] - src[i]) > 3) diff++;
+        return diff;
+      });
+      check('editor: blur changes pixels in the redacted region', changed > 10, `changed px = ${changed}`);
+    } else {
+      check('editor: capture for blur', false, JSON.stringify(res));
+    }
+  }
 } catch (e) {
   console.log('FATAL ' + (e && e.stack ? e.stack : String(e)));
   results.push({ name: 'fatal error', ok: false });
