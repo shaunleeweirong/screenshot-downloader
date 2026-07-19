@@ -23,10 +23,10 @@ export function composeToContext(
   for (const a of scene.annotations) {
     if (a.type !== 'blur') continue;
     const b = boundsOf(a);
-    const w = Math.max(1, Math.round(b.w));
-    const h = Math.max(1, Math.round(b.h));
     const x = Math.max(0, Math.round(b.x));
     const y = Math.max(0, Math.round(b.y));
+    const w = Math.max(1, Math.min(Math.round(b.w), sourceWidth - x));
+    const h = Math.max(1, Math.min(Math.round(b.h), sourceHeight - y));
     const region = ctx.getImageData(x, y, w, h);
     pixelateRegion(region.data, region.width, region.height, { x: 0, y: 0, w: region.width, h: region.height }, a.block);
     ctx.putImageData(region, x, y);
