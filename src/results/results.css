@@ -67,5 +67,5 @@ body {
 #tool-color { width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; }
 #tool-width { width: 90px; }
 .editor-canvas { max-width: 100%; height: auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15), 0 8px 24px rgba(0,0,0,.08); border-radius: 4px; cursor: crosshair; touch-action: none; }
-.editor-text-input { z-index: 2147483647; border: 1px dashed var(--accent); background: rgba(255,255,255,.9); padding: 0 2px; outline: none; }
+.editor-text-input { z-index: 2147483647; min-width: 60px; border: 1px dashed var(--accent); background: rgba(255,255,255,.9); padding: 0 2px; outline: none; }
 .stage.editing img { display: none; }

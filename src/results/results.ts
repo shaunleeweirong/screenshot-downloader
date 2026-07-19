@@ -94,28 +94,38 @@ async function enterEditMode(): Promise<void> {
   editToggle.classList.add('primary');
   toolbar.hidden = false;
   stage.classList.add('editing');
+  const colorInput = document.getElementById('tool-color') as HTMLInputElement;
+  const widthInput = document.getElementById('tool-width') as HTMLInputElement;
+  const cropReset = document.getElementById('tool-crop-reset') as HTMLElement;
+
+  // Keep the toolbar in sync with the editor: highlight the active tool and make the
+  // color/width controls reflect whatever is currently selected (so you edit it in place).
+  const syncToolbar = (): void => {
+    if (!editor) return;
+    const st = editor.getUiState();
+    toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((x) => x.classList.toggle('active', x.dataset.tool === st.tool));
+    colorInput.value = st.style.stroke;
+    widthInput.value = String(st.style.strokeWidth);
+    cropReset.hidden = st.tool !== 'crop';
+  };
+
   const source = await bitmapFromBlob(blobs[0]);
-  editor = new EditorController(stage, source);
+  editor = new EditorController(stage, source, syncToolbar);
   editor.mount();
   editor.setTool('select');
 
   toolbarAbort = new AbortController();
   const { signal } = toolbarAbort;
   toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((b) => {
-    b.addEventListener('click', () => {
-      toolbar.querySelectorAll('.tool').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      const tool = b.dataset.tool as Parameters<EditorController['setTool']>[0];
-      editor!.setTool(tool);
-      (document.getElementById('tool-crop-reset') as HTMLElement).hidden = tool !== 'crop';
-    }, { signal });
+    b.addEventListener('click', () => editor!.setTool(b.dataset.tool as Parameters<EditorController['setTool']>[0]), { signal });
   });
-  (document.getElementById('tool-color') as HTMLInputElement).addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
-  (document.getElementById('tool-width') as HTMLInputElement).addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
+  colorInput.addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
+  widthInput.addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
   document.getElementById('tool-undo')!.addEventListener('click', () => editor!.undo(), { signal });
   document.getElementById('tool-redo')!.addEventListener('click', () => editor!.redo(), { signal });
   document.getElementById('tool-delete')!.addEventListener('click', () => editor!.deleteSelected(), { signal });
   document.getElementById('tool-crop-reset')!.addEventListener('click', () => editor!.resetCrop(), { signal });
+  syncToolbar();
 }
 
 function exitEditMode(): void {
