@@ -1,0 +1,330 @@
+import {
+  emptyScene, DEFAULT_STYLE, type Annotation, type Box, type Point, type Scene, type Style, type Tool,
+} from '../lib/editor/types';
+import { addAnnotation, removeAnnotation, updateAnnotation } from '../lib/editor/scene';
+import { History } from '../lib/editor/history';
+import { boundsOf, handlesOf, translateAnnot, resizeAnnot, type Handle } from '../lib/editor/geometry';
+import { hitAnnotation, hitHandle } from '../lib/editor/hit-test';
+import { makeView, toImage, type View } from '../lib/editor/transform';
+import { clampCrop } from '../lib/editor/crop';
+import { composeToContext, flatten, type ComposeCtx } from '../lib/editor/flatten';
+
+declare const __FS_E2E__: boolean;
+
+let idSeq = 0;
+const nextId = (): string => `an-${idSeq++}`;
+
+const BLUR_BLOCK = 12;
+
+export class EditorController {
+  private host: HTMLElement;
+  private source: ImageBitmap;
+  private onChange?: () => void;
+
+  private canvas!: HTMLCanvasElement;
+  private ctx!: ComposeCtx;
+  private view: View = { scale: 1 };
+
+  private history: History<Scene> = new History(emptyScene());
+  private working: Scene = emptyScene();
+  private tool: Tool = 'select';
+  private style: Style = { ...DEFAULT_STYLE };
+  private selectedId: string | null = null;
+  private cropRect: Box | undefined;
+
+  // drag state (image coords)
+  private dragStart: Point | null = null;
+  private draftId: string | null = null;
+  private moveHandle: Handle | null = null;
+  private movingFrom: Point | null = null;
+  private dragMoved = false;
+
+  constructor(host: HTMLElement, source: ImageBitmap, onChange?: () => void) {
+    this.host = host;
+    this.source = source;
+    this.onChange = onChange;
+  }
+
+  private get scene(): Scene {
+    return this.working;
+  }
+
+  /** Update the live scene without recording history (used during a drag). */
+  private setWorking(scene: Scene): void {
+    this.working = scene;
+    this.redraw();
+  }
+
+  /** Discrete change: update the live scene AND record one history entry. */
+  private commit(scene: Scene): void {
+    this.working = scene;
+    this.history.push(scene);
+    this.redraw();
+    this.onChange?.();
+  }
+
+  mount(): void {
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.source.width;
+    this.canvas.height = this.source.height;
+    this.canvas.className = 'editor-canvas';
+    const displayWidth = Math.min(this.source.width, this.host.clientWidth || this.source.width);
+    this.canvas.style.width = `${displayWidth}px`;
+    this.view = makeView(this.source.width, displayWidth);
+    this.ctx = this.canvas.getContext('2d') as unknown as ComposeCtx;
+    this.host.appendChild(this.canvas);
+
+    this.canvas.addEventListener('pointerdown', this.onDown);
+    this.canvas.addEventListener('pointermove', this.onMove);
+    window.addEventListener('pointerup', this.onUp);
+    window.addEventListener('keydown', this.onKey);
+    this.redraw();
+
+    if (__FS_E2E__) {
+      (window as unknown as { __fsEditor?: unknown }).__fsEditor = {
+        addArrow: (p: { x1: number; y1: number; x2: number; y2: number }) =>
+          this.commit(addAnnotation(this.scene, { id: nextId(), type: 'arrow', ...p, style: { ...this.style } })),
+        addBlur: (b: Box) =>
+          this.commit(addAnnotation(this.scene, { id: nextId(), type: 'blur', ...b, block: BLUR_BLOCK })),
+        addStep: (pt: Point) =>
+          this.commit(addAnnotation(this.scene, { id: nextId(), type: 'step', x: pt.x, y: pt.y, n: this.scene.nextStep, style: { ...this.style } })),
+        flattenDataUrl: async () => {
+          const blob = await this.export();
+          return await new Promise<string>((res) => {
+            const r = new FileReader();
+            r.onload = () => res(r.result as string);
+            r.readAsDataURL(blob);
+          });
+        },
+      };
+    }
+  }
+
+  setTool(tool: Tool): void {
+    this.tool = tool;
+    if (tool !== 'select') this.selectedId = null;
+    this.redraw();
+  }
+  setColor(c: string): void {
+    this.style = { ...this.style, stroke: c };
+    if (this.selectedId) this.commit(updateAnnotation(this.scene, this.selectedId, { style: { ...this.style } } as Partial<Annotation>));
+  }
+  setStrokeWidth(n: number): void {
+    this.style = { ...this.style, strokeWidth: n };
+    if (this.selectedId) this.commit(updateAnnotation(this.scene, this.selectedId, { style: { ...this.style } } as Partial<Annotation>));
+  }
+
+  undo(): void { this.working = this.history.undo(); this.selectedId = null; this.redraw(); this.onChange?.(); }
+  redo(): void { this.working = this.history.redo(); this.selectedId = null; this.redraw(); this.onChange?.(); }
+  deleteSelected(): void {
+    if (!this.selectedId) return;
+    this.commit(removeAnnotation(this.scene, this.selectedId));
+    this.selectedId = null;
+  }
+
+  resetCrop(): void {
+    this.cropRect = undefined;
+    this.redraw();
+    this.onChange?.();
+  }
+
+  hasEdits(): boolean {
+    return this.scene.annotations.length > 0 || !!this.cropRect;
+  }
+
+  export(): Promise<Blob> {
+    return flatten(this.source, this.scene, this.cropRect);
+  }
+
+  destroy(): void {
+    this.canvas.removeEventListener('pointerdown', this.onDown);
+    this.canvas.removeEventListener('pointermove', this.onMove);
+    window.removeEventListener('pointerup', this.onUp);
+    window.removeEventListener('keydown', this.onKey);
+    this.canvas.remove();
+  }
+
+  private ptFromEvent(e: PointerEvent): Point {
+    const rect = this.canvas.getBoundingClientRect();
+    return toImage({ x: e.clientX - rect.left, y: e.clientY - rect.top }, this.view);
+  }
+
+  private onDown = (e: PointerEvent): void => {
+    const p = this.ptFromEvent(e);
+    this.dragStart = p;
+    this.dragMoved = false;
+    if (this.tool === 'select') {
+      if (this.selectedId) {
+        const sel = this.scene.annotations.find((a) => a.id === this.selectedId);
+        const handle = sel ? hitHandle(sel, p) : null;
+        if (handle) { this.moveHandle = handle; return; }
+      }
+      const hit = hitAnnotation(this.scene, p);
+      this.selectedId = hit ? hit.id : null;
+      this.movingFrom = hit ? p : null;
+      this.redraw();
+      return;
+    }
+    if (this.tool === 'text') {
+      this.spawnTextInput(p);
+      this.dragStart = null;
+      return;
+    }
+    if (this.tool === 'step') {
+      this.commit(addAnnotation(this.scene, { id: nextId(), type: 'step', x: p.x, y: p.y, n: this.scene.nextStep, style: { ...this.style } }));
+      this.dragStart = null;
+      return;
+    }
+    // draw + crop tools: begin a draft; nothing is committed to history until release
+    const id = nextId();
+    this.draftId = id;
+    const a = this.makeDraft(this.tool, id, p);
+    if (a) this.setWorking(addAnnotation(this.scene, a));
+  };
+
+  private onMove = (e: PointerEvent): void => {
+    if (!this.dragStart) return;
+    const p = this.ptFromEvent(e);
+
+    // Crop only adjusts editor state (cropRect) — never the scene/history.
+    if (this.tool === 'crop' && this.draftId) {
+      this.cropRect = clampCrop(
+        { x: Math.min(this.dragStart.x, p.x), y: Math.min(this.dragStart.y, p.y), w: Math.abs(p.x - this.dragStart.x), h: Math.abs(p.y - this.dragStart.y) },
+        { w: this.source.width, h: this.source.height },
+      );
+      this.redraw();
+      return;
+    }
+
+    if (this.tool === 'select' && this.selectedId) {
+      const sel = this.scene.annotations.find((a) => a.id === this.selectedId);
+      if (!sel) return;
+      if (this.moveHandle) {
+        this.dragMoved = true;
+        this.setWorking(updateAnnotation(this.scene, sel.id, resizeAnnot(sel, this.moveHandle.id, p) as Partial<Annotation>));
+      } else if (this.movingFrom) {
+        const dx = p.x - this.movingFrom.x, dy = p.y - this.movingFrom.y;
+        this.movingFrom = p;
+        this.dragMoved = true;
+        this.setWorking(updateAnnotation(this.scene, sel.id, translateAnnot(sel, dx, dy) as Partial<Annotation>));
+      }
+      return;
+    }
+
+    if (this.draftId) {
+      this.dragMoved = true;
+      this.setWorking(this.resizeDraft(this.draftId, this.dragStart, p));
+    }
+  };
+
+  private onUp = (): void => {
+    if (this.draftId && this.tool !== 'crop' && !this.dragMoved) {
+      // a click with no drag on a draw tool: discard the zero-size draft
+      this.setWorking(removeAnnotation(this.working, this.draftId));
+    } else if (this.dragMoved) {
+      this.history.push(this.working);
+      this.onChange?.();
+    }
+    this.dragStart = null;
+    this.draftId = null;
+    this.moveHandle = null;
+    this.movingFrom = null;
+    this.dragMoved = false;
+  };
+
+  private onKey = (e: KeyboardEvent): void => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) { e.preventDefault(); this.deleteSelected(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); this.undo(); }
+    else if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); this.redo(); }
+  };
+
+  private makeDraft(tool: Tool, id: string, p: Point): Annotation | null {
+    const style = { ...this.style };
+    switch (tool) {
+      case 'arrow': return { id, type: 'arrow', x1: p.x, y1: p.y, x2: p.x, y2: p.y, style };
+      case 'line': return { id, type: 'line', x1: p.x, y1: p.y, x2: p.x, y2: p.y, style };
+      case 'rect': return { id, type: 'rect', x: p.x, y: p.y, w: 0, h: 0, style };
+      case 'ellipse': return { id, type: 'ellipse', x: p.x, y: p.y, w: 0, h: 0, style };
+      case 'highlight': return { id, type: 'highlight', x: p.x, y: p.y, w: 0, h: 0, style: { ...style, stroke: '#fde047' } };
+      case 'blur': return { id, type: 'blur', x: p.x, y: p.y, w: 0, h: 0, block: BLUR_BLOCK };
+      default: return null; // crop has no scene annotation
+    }
+  }
+
+  private resizeDraft(id: string, from: Point, to: Point): Scene {
+    const a = this.scene.annotations.find((x) => x.id === id);
+    if (!a) return this.scene;
+    if (a.type === 'arrow' || a.type === 'line') {
+      return updateAnnotation(this.scene, id, { x2: to.x, y2: to.y } as Partial<Annotation>);
+    }
+    return updateAnnotation(this.scene, id, { x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), w: Math.abs(to.x - from.x), h: Math.abs(to.y - from.y) } as Partial<Annotation>);
+  }
+
+  private spawnTextInput(p: Point): void {
+    const input = document.createElement('input');
+    input.className = 'editor-text-input';
+    const rect = this.canvas.getBoundingClientRect();
+    input.style.position = 'fixed';
+    input.style.left = `${rect.left + p.x / this.view.scale}px`;
+    input.style.top = `${rect.top + p.y / this.view.scale}px`;
+    input.style.font = `${this.style.fontSize / this.view.scale}px system-ui, sans-serif`;
+    input.style.color = this.style.stroke;
+    document.body.appendChild(input);
+    input.focus();
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      const text = input.value.trim();
+      input.remove();
+      if (text) this.commit(addAnnotation(this.scene, { id: nextId(), type: 'text', x: p.x, y: p.y, text, style: { ...this.style } }));
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+      if (ev.key === 'Escape') { done = true; input.remove(); }
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  private redraw(): void {
+    composeToContext(this.ctx, this.source, this.source.width, this.source.height, this.scene);
+    this.drawSelection();
+    this.drawCropOverlay();
+  }
+
+  private drawSelection(): void {
+    if (!this.selectedId) return;
+    const sel = this.scene.annotations.find((a) => a.id === this.selectedId);
+    if (!sel) return;
+    const c = this.ctx as unknown as CanvasRenderingContext2D;
+    const b = boundsOf(sel);
+    c.save();
+    c.strokeStyle = '#2563eb';
+    c.lineWidth = Math.max(1, this.view.scale);
+    c.setLineDash?.([6 * this.view.scale, 4 * this.view.scale]);
+    c.strokeRect(b.x, b.y, b.w, b.h);
+    c.setLineDash?.([]);
+    const hs = 5 * this.view.scale;
+    c.fillStyle = '#2563eb';
+    for (const h of handlesOf(sel)) c.fillRect(h.x - hs, h.y - hs, hs * 2, hs * 2);
+    c.restore();
+  }
+
+  // Dim everything outside the crop region so the user sees what will export.
+  private drawCropOverlay(): void {
+    if (!this.cropRect) return;
+    const c = this.ctx as unknown as CanvasRenderingContext2D;
+    const W = this.source.width, H = this.source.height;
+    const { x, y, w, h } = this.cropRect;
+    c.save();
+    c.fillStyle = 'rgba(0,0,0,0.45)';
+    c.fillRect(0, 0, W, y);                 // top band
+    c.fillRect(0, y + h, W, H - (y + h));   // bottom band
+    c.fillRect(0, y, x, h);                 // left band
+    c.fillRect(x + w, y, W - (x + w), h);   // right band
+    c.strokeStyle = '#22c55e';
+    c.lineWidth = Math.max(2, this.view.scale * 2);
+    c.strokeRect(x, y, w, h);
+    c.restore();
+  }
+}
