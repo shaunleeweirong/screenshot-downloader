@@ -28,6 +28,7 @@ let settings: Settings;
 
 let editor: EditorController | null = null;
 let editing = false;
+let toolbarAbort: AbortController | null = null;
 const editToggle = document.getElementById('edit-toggle') as HTMLButtonElement;
 const toolbar = document.getElementById('editor-toolbar') as HTMLElement;
 
@@ -98,6 +99,8 @@ async function enterEditMode(): Promise<void> {
   editor.mount();
   editor.setTool('select');
 
+  toolbarAbort = new AbortController();
+  const { signal } = toolbarAbort;
   toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((b) => {
     b.addEventListener('click', () => {
       toolbar.querySelectorAll('.tool').forEach((x) => x.classList.remove('active'));
@@ -105,18 +108,20 @@ async function enterEditMode(): Promise<void> {
       const tool = b.dataset.tool as Parameters<EditorController['setTool']>[0];
       editor!.setTool(tool);
       (document.getElementById('tool-crop-reset') as HTMLElement).hidden = tool !== 'crop';
-    });
+    }, { signal });
   });
-  (document.getElementById('tool-color') as HTMLInputElement).addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value));
-  (document.getElementById('tool-width') as HTMLInputElement).addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)));
-  document.getElementById('tool-undo')!.addEventListener('click', () => editor!.undo());
-  document.getElementById('tool-redo')!.addEventListener('click', () => editor!.redo());
-  document.getElementById('tool-delete')!.addEventListener('click', () => editor!.deleteSelected());
-  document.getElementById('tool-crop-reset')!.addEventListener('click', () => editor!.resetCrop());
+  (document.getElementById('tool-color') as HTMLInputElement).addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
+  (document.getElementById('tool-width') as HTMLInputElement).addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
+  document.getElementById('tool-undo')!.addEventListener('click', () => editor!.undo(), { signal });
+  document.getElementById('tool-redo')!.addEventListener('click', () => editor!.redo(), { signal });
+  document.getElementById('tool-delete')!.addEventListener('click', () => editor!.deleteSelected(), { signal });
+  document.getElementById('tool-crop-reset')!.addEventListener('click', () => editor!.resetCrop(), { signal });
 }
 
 function exitEditMode(): void {
   if (!editing) return;
+  toolbarAbort?.abort();
+  toolbarAbort = null;
   editing = false;
   editToggle.textContent = 'Edit';
   editToggle.classList.remove('primary');
