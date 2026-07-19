@@ -40,6 +40,7 @@ export class EditorController {
   // crop drag state
   private cropHandle: Handle | null = null;
   private cropMoveFrom: Point | null = null;
+  private interactive = true;
 
   constructor(host: HTMLElement, source: ImageBitmap, onChange?: () => void) {
     this.host = host;
@@ -171,6 +172,14 @@ export class EditorController {
     return this.scene.annotations.length > 0 || !!this.cropRect;
   }
 
+  /** Turn editing on/off WITHOUT unmounting: the annotated canvas stays on screen
+   *  after "Done" (edits persist + stay exportable) and resumes on re-edit. */
+  setInteractive(on: boolean): void {
+    this.interactive = on;
+    if (!on) this.selectedId = null;
+    this.redraw();
+  }
+
   export(): Promise<Blob> {
     return flatten(this.source, this.scene, this.cropRect);
   }
@@ -195,6 +204,7 @@ export class EditorController {
   }
 
   private onDown = (e: PointerEvent): void => {
+    if (!this.interactive) return;
     const p = this.ptFromEvent(e);
     this.dragStart = p;
     this.dragMoved = false;
@@ -315,6 +325,7 @@ export class EditorController {
   };
 
   private onKey = (e: KeyboardEvent): void => {
+    if (!this.interactive) return;
     if (document.activeElement instanceof HTMLInputElement) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) { e.preventDefault(); this.deleteSelected(); }
     else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); this.undo(); }

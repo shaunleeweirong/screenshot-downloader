@@ -87,6 +87,17 @@ async function bitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
   return createImageBitmap(blob);
 }
 
+// Keep the toolbar in sync with the editor: highlight the active tool and make the
+// color/width controls reflect whatever is currently selected (so you edit it in place).
+function syncToolbar(): void {
+  if (!editor) return;
+  const st = editor.getUiState();
+  toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((x) => x.classList.toggle('active', x.dataset.tool === st.tool));
+  (document.getElementById('tool-color') as HTMLInputElement).value = st.style.stroke;
+  (document.getElementById('tool-width') as HTMLInputElement).value = String(st.style.strokeWidth);
+  (document.getElementById('tool-crop-reset') as HTMLElement).hidden = st.tool !== 'crop';
+}
+
 async function enterEditMode(): Promise<void> {
   if (editing || blobs.length !== 1) return;
   editing = true;
@@ -94,33 +105,23 @@ async function enterEditMode(): Promise<void> {
   editToggle.classList.add('primary');
   toolbar.hidden = false;
   stage.classList.add('editing');
-  const colorInput = document.getElementById('tool-color') as HTMLInputElement;
-  const widthInput = document.getElementById('tool-width') as HTMLInputElement;
-  const cropReset = document.getElementById('tool-crop-reset') as HTMLElement;
 
-  // Keep the toolbar in sync with the editor: highlight the active tool and make the
-  // color/width controls reflect whatever is currently selected (so you edit it in place).
-  const syncToolbar = (): void => {
-    if (!editor) return;
-    const st = editor.getUiState();
-    toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((x) => x.classList.toggle('active', x.dataset.tool === st.tool));
-    colorInput.value = st.style.stroke;
-    widthInput.value = String(st.style.strokeWidth);
-    cropReset.hidden = st.tool !== 'crop';
-  };
-
-  const source = await bitmapFromBlob(blobs[0]);
-  editor = new EditorController(stage, source, syncToolbar);
-  editor.mount();
-  editor.setTool('select');
+  if (editor) {
+    editor.setInteractive(true); // resume the existing session — edits are preserved
+  } else {
+    const source = await bitmapFromBlob(blobs[0]);
+    editor = new EditorController(stage, source, syncToolbar);
+    editor.mount();
+    editor.setTool('select');
+  }
 
   toolbarAbort = new AbortController();
   const { signal } = toolbarAbort;
   toolbar.querySelectorAll<HTMLButtonElement>('.tool').forEach((b) => {
     b.addEventListener('click', () => editor!.setTool(b.dataset.tool as Parameters<EditorController['setTool']>[0]), { signal });
   });
-  colorInput.addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
-  widthInput.addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
+  (document.getElementById('tool-color') as HTMLInputElement).addEventListener('input', (e) => editor!.setColor((e.target as HTMLInputElement).value), { signal });
+  (document.getElementById('tool-width') as HTMLInputElement).addEventListener('input', (e) => editor!.setStrokeWidth(parseInt((e.target as HTMLInputElement).value, 10)), { signal });
   document.getElementById('tool-undo')!.addEventListener('click', () => editor!.undo(), { signal });
   document.getElementById('tool-redo')!.addEventListener('click', () => editor!.redo(), { signal });
   document.getElementById('tool-delete')!.addEventListener('click', () => editor!.deleteSelected(), { signal });
@@ -136,9 +137,15 @@ function exitEditMode(): void {
   editToggle.textContent = 'Edit';
   editToggle.classList.remove('primary');
   toolbar.hidden = true;
-  stage.classList.remove('editing');
-  editor?.destroy();
-  editor = null;
+  if (editor && editor.hasEdits()) {
+    // Keep the annotated canvas on screen and exportable; resume on re-edit.
+    editor.setInteractive(false);
+  } else {
+    // No edits — revert cleanly to the original capture display.
+    stage.classList.remove('editing');
+    editor?.destroy();
+    editor = null;
+  }
 }
 
 async function currentExportBlobs(): Promise<Blob[]> {
