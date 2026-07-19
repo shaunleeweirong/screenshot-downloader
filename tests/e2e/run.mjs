@@ -380,6 +380,45 @@ try {
       check('editor: capture for crop-resize', false);
     }
   }
+
+  // ---------- 11. Editor: resize keeps working when the drag leaves the canvas ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      const cw = ed.box.width * ed.scale, ch = ed.box.height * ed.scale;
+      await analysisPage.click('#editor-toolbar [data-tool="blur"]');
+      await dragClient(ed.toClient(cw * 0.5, ch * 0.5), ed.toClient(cw * 0.8, ch * 0.8));
+      const b0 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'blur'));
+      // Drag the SE handle to a point well OUTSIDE the canvas element (past bottom-right).
+      const se = ed.toClient(b0.x + b0.w, b0.y + b0.h);
+      await analysisPage.mouse.move(se.x, se.y);
+      await analysisPage.mouse.down();
+      await analysisPage.mouse.move(ed.box.x + ed.box.width + 120, ed.box.y + ed.box.height + 120, { steps: 8 });
+      await analysisPage.mouse.up();
+      const b1 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'blur'));
+      check('editor: resize continues after the pointer leaves the canvas (blur grows)',
+        !!b1 && b1.w > b0.w + 20 && b1.h > b0.h + 20, `${b0 && b0.w}x${b0 && b0.h} -> ${b1 && b1.w}x${b1 && b1.h}`);
+    } else {
+      check('editor: capture for off-canvas resize', false);
+    }
+  }
+
+  // ---------- 12. Editor: arrow endpoint is draggable ----------
+  {
+    const ed = await openEditor();
+    if (ed) {
+      const cw = ed.box.width * ed.scale, ch = ed.box.height * ed.scale;
+      await analysisPage.click('#editor-toolbar [data-tool="arrow"]');
+      await dragClient(ed.toClient(cw * 0.3, ch * 0.4), ed.toClient(cw * 0.6, ch * 0.4));
+      const a0 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'arrow'));
+      await dragClient(ed.toClient(a0.x2, a0.y2), ed.toClient(a0.x2 + 40, a0.y2 + 120)); // drag the p2 endpoint down
+      const a1 = await analysisPage.evaluate(() => window.__fsEditor.getScene().annotations.find((x) => x.type === 'arrow'));
+      check('editor: dragging an arrow endpoint moves it',
+        !!a1 && Math.abs(a1.y2 - a0.y2) > 60, `y2 ${a0 && a0.y2} -> ${a1 && a1.y2}`);
+    } else {
+      check('editor: capture for arrow-resize', false);
+    }
+  }
 } catch (e) {
   console.log('FATAL ' + (e && e.stack ? e.stack : String(e)));
   results.push({ name: 'fatal error', ok: false });
