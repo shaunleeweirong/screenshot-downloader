@@ -53,9 +53,9 @@ const iifeBuild = {
 const manifest = {
   manifest_version: 3,
   name: 'FullShot - Full Page Screenshot & Scrolling Screen Capture Tool',
-  version: '1.0.0',
+  version: '1.1.0',
   description:
-    'Capture full-page, scrolling, visible, or selected-region screenshots. 100% local & private. Export to PNG, JPG or PDF. No login.',
+    'Full-page, scrolling, visible & region screenshots — then annotate with arrows, blur, text & crop. 100% local. PNG/JPG/PDF.',
   homepage_url: 'https://github.com/shaunleeweirong/screenshot-downloader',
   minimum_chrome_version: '116',
   action: { default_popup: 'popup.html', default_title: 'FullShot — capture this page', default_icon: {

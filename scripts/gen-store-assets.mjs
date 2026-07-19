@@ -21,8 +21,55 @@ const STORE = join(root, 'store-assets');
 const FIXTURE = readFileSync(join(root, 'tests', 'e2e', 'fixtures', 'long-page.html'), 'utf8');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(ASSETS, { recursive: true });
-rmSync(STORE, { recursive: true, force: true });
-mkdirSync(STORE, { recursive: true });
+mkdirSync(STORE, { recursive: true }); // overwrite generated files in place; keep any hand-made extras
+
+// A realistic billing dashboard used only for the annotation-editor screenshot,
+// so blur/arrow/steps land on believable content (sensitive card + email to redact).
+const EDITOR_MOCK = `<!doctype html><html><head><meta charset="utf-8"><style>
+  *{margin:0;box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  body{background:#f6f7f9;color:#0f172a}
+  .top{height:56px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:26px;padding:0 30px}
+  .brand{font-weight:800;font-size:17px;display:flex;align-items:center;gap:9px}
+  .brand .b{width:20px;height:20px;border-radius:6px;background:#2563eb}
+  .nav{display:flex;gap:22px;color:#64748b;font-size:14px}
+  .nav b{color:#0f172a}
+  .wrap{max-width:1000px;margin:26px auto;padding:0 24px}
+  h1{font-size:22px;margin-bottom:4px}
+  .sub{color:#64748b;font-size:14px;margin-bottom:20px}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px}
+  .k{color:#64748b;font-size:13px}
+  .v{font-size:28px;font-weight:800;margin-top:6px}
+  .up{color:#16a34a;font-size:13px;font-weight:600;margin-top:6px}
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
+  .panel h2{font-size:15px;padding:16px 18px;border-bottom:1px solid #eef2f7}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f1f5f9;font-size:14px}
+  .row:last-child{border-bottom:0}
+  .who{display:flex;align-items:center;gap:12px}
+  .av{width:30px;height:30px;border-radius:50%;background:#dbeafe;flex:none}
+  .muted{color:#64748b;font-size:13px;margin-top:2px}
+  .amt{font-weight:700}
+</style></head><body>
+  <div class="top">
+    <div class="brand"><span class="b"></span> Acme Analytics</div>
+    <div class="nav"><b>Billing</b><span>Projects</span><span>Team</span><span>Settings</span></div>
+  </div>
+  <div class="wrap">
+    <h1>Billing &amp; usage</h1>
+    <div class="sub">Last 30 days · workspace acme-prod</div>
+    <div class="cards">
+      <div class="card"><div class="k">Current spend</div><div class="v">$1,284.50</div><div class="up">&#9650; 12% vs last month</div></div>
+      <div class="card"><div class="k">API calls</div><div class="v">2.4M</div><div class="up">&#9650; 8%</div></div>
+      <div class="card"><div class="k">Seats used</div><div class="v">32 / 40</div><div class="muted">8 available</div></div>
+    </div>
+    <div class="panel">
+      <h2>Recent invoices</h2>
+      <div class="row"><div class="who"><span class="av"></span><div><div>Invoice #INV-20482</div><div class="muted">card &bull;&bull;&bull;&bull; 4242 · alex@acme.co</div></div></div><div class="amt">$1,284.50</div></div>
+      <div class="row"><div class="who"><span class="av"></span><div><div>Invoice #INV-20391</div><div class="muted">card &bull;&bull;&bull;&bull; 4242 · alex@acme.co</div></div></div><div class="amt">$1,146.00</div></div>
+      <div class="row"><div class="who"><span class="av"></span><div><div>Invoice #INV-20305</div><div class="muted">card &bull;&bull;&bull;&bull; 4242 · alex@acme.co</div></div></div><div class="amt">$1,092.75</div></div>
+    </div>
+  </div>
+</body></html>`;
 
 function extIdFromPath(p) {
   const h = createHash('sha256').update(p).digest();
@@ -138,9 +185,9 @@ try {
   browser = null;
 
   // ===== Phase B: real UI screenshots via the loaded extension =====
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end(FIXTURE);
+    res.end(req.url && req.url.startsWith('/editor') ? EDITOR_MOCK : FIXTURE);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const fixtureUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -204,6 +251,36 @@ try {
     await p.catch(() => {});
   } catch (e) {
     console.log('region screenshot skipped: ' + e.message);
+  }
+
+  // editor — annotate a realistic billing page (arrow + redaction blur + numbered steps)
+  try {
+    const em = await ctx.newPage();
+    await em.setViewportSize({ width: 1280, height: 800 });
+    await em.goto(fixtureUrl + 'editor', { waitUntil: 'load' });
+    await em.bringToFront();
+    await sleep(250);
+    const res = await sw.evaluate(() => globalThis.__fsCaptureActive('visible'));
+    const rp = await ctx.newPage();
+    await rp.setViewportSize({ width: 1180, height: 780 });
+    await rp.goto(`chrome-extension://${id}/results.html?id=${res.recordId}`, { waitUntil: 'load' });
+    await rp.waitForSelector('.stage img');
+    await rp.click('#edit-toggle');
+    await rp.waitForSelector('.editor-canvas');
+    await rp.evaluate(() => {
+      const ed = window.__fsEditor;
+      const cv = document.querySelector('.editor-canvas');
+      const W = cv.width, H = cv.height;
+      const wI = document.getElementById('tool-width'); wI.value = '11'; wI.dispatchEvent(new Event('input', { bubbles: true })); // bolder pen
+      ed.addBlur({ x: Math.round(W * 0.08), y: Math.round(H * 0.415), w: Math.round(W * 0.38), h: Math.round(H * 0.225) }); // redact card + email on all invoice rows
+      ed.addArrow({ x1: Math.round(W * 0.38), y1: Math.round(H * 0.13), x2: Math.round(W * 0.235), y2: Math.round(H * 0.255) }); // point at Current spend
+    });
+    await sleep(350);
+    shots.push(['screenshot-5-editor.png', 'Annotate &amp; redact before you export', 'Arrows, highlights, blur, text, numbered steps &amp; crop — then save', await rp.screenshot(), { maxW: 1000 }]);
+    await rp.close();
+    await em.close();
+  } catch (e) {
+    console.log('editor screenshot skipped: ' + e.message);
   }
 
   // compose frames
