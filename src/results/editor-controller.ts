@@ -5,7 +5,7 @@ import { addAnnotation, removeAnnotation, updateAnnotation } from '../lib/editor
 import { History } from '../lib/editor/history';
 import { boundsOf, cornerHandles, handlesOf, resizeBox, translateAnnot, resizeAnnot, type Handle } from '../lib/editor/geometry';
 import { hitAnnotation, hitHandle, hitBoxHandle, pointInBox } from '../lib/editor/hit-test';
-import { makeView, toImage, type View } from '../lib/editor/transform';
+import { makeView, toImage } from '../lib/editor/transform';
 import { clampCrop } from '../lib/editor/crop';
 import { composeToContext, flatten, type ComposeCtx } from '../lib/editor/flatten';
 
@@ -23,7 +23,6 @@ export class EditorController {
 
   private canvas!: HTMLCanvasElement;
   private ctx!: ComposeCtx;
-  private view: View = { scale: 1 };
 
   private history: History<Scene> = new History(emptyScene());
   private working: Scene = emptyScene();
@@ -73,12 +72,14 @@ export class EditorController {
     this.canvas.className = 'editor-canvas';
     const displayWidth = Math.min(this.source.width, this.host.clientWidth || this.source.width);
     this.canvas.style.width = `${displayWidth}px`;
-    this.view = makeView(this.source.width, displayWidth);
     this.ctx = this.canvas.getContext('2d') as unknown as ComposeCtx;
     this.host.appendChild(this.canvas);
 
     this.canvas.addEventListener('pointerdown', this.onDown);
-    this.canvas.addEventListener('pointermove', this.onMove);
+    // pointermove/up live on window so a drag (draw, move, resize, crop) keeps
+    // working even when the pointer leaves the canvas — e.g. resizing a shape
+    // that fills the image by dragging a handle past the edge.
+    window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerup', this.onUp);
     window.addEventListener('keydown', this.onKey);
     this.redraw();
@@ -105,7 +106,7 @@ export class EditorController {
         getCropRect: () => this.cropRect ?? null,
         getTool: () => this.tool,
         selectAt: (pt: Point) => {
-          const hit = hitAnnotation(this.scene, pt, 6 * this.view.scale);
+          const hit = hitAnnotation(this.scene, pt, 6 * this.scale());
           this.selectedId = hit ? hit.id : null;
           this.tool = 'select';
           this.redraw();
@@ -176,15 +177,21 @@ export class EditorController {
 
   destroy(): void {
     this.canvas.removeEventListener('pointerdown', this.onDown);
-    this.canvas.removeEventListener('pointermove', this.onMove);
+    window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerup', this.onUp);
     window.removeEventListener('keydown', this.onKey);
     this.canvas.remove();
   }
 
+  /** Image/display scale from the canvas's ACTUAL rendered width, so pointer↔image
+   *  mapping stays exact regardless of responsive max-width or window resizing. */
+  private scale(): number {
+    return makeView(this.source.width, this.canvas.getBoundingClientRect().width).scale;
+  }
+
   private ptFromEvent(e: PointerEvent): Point {
     const rect = this.canvas.getBoundingClientRect();
-    return toImage({ x: e.clientX - rect.left, y: e.clientY - rect.top }, this.view);
+    return toImage({ x: e.clientX - rect.left, y: e.clientY - rect.top }, makeView(this.source.width, rect.width));
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -193,7 +200,7 @@ export class EditorController {
     this.dragMoved = false;
     // Hit tolerances are in image px; scale them so grabbing stays easy when the
     // canvas is displayed smaller than its native resolution.
-    const handleTol = 8 * this.view.scale;
+    const handleTol = 8 * this.scale();
 
     if (this.tool === 'select') {
       if (this.selectedId) {
@@ -201,7 +208,7 @@ export class EditorController {
         const handle = sel ? hitHandle(sel, p, handleTol) : null;
         if (handle) { this.moveHandle = handle; return; }
       }
-      const hit = hitAnnotation(this.scene, p, 6 * this.view.scale);
+      const hit = hitAnnotation(this.scene, p, 6 * this.scale());
       this.selectedId = hit ? hit.id : null;
       this.movingFrom = hit ? p : null;
       this.redraw();
@@ -341,9 +348,9 @@ export class EditorController {
     input.className = 'editor-text-input';
     const rect = this.canvas.getBoundingClientRect();
     input.style.position = 'fixed';
-    input.style.left = `${rect.left + p.x / this.view.scale}px`;
-    input.style.top = `${rect.top + p.y / this.view.scale}px`;
-    input.style.font = `${this.style.fontSize / this.view.scale}px system-ui, sans-serif`;
+    input.style.left = `${rect.left + p.x / this.scale()}px`;
+    input.style.top = `${rect.top + p.y / this.scale()}px`;
+    input.style.font = `${this.style.fontSize / this.scale()}px system-ui, sans-serif`;
     input.style.color = this.style.stroke;
     document.body.appendChild(input);
     let done = false;
@@ -380,11 +387,11 @@ export class EditorController {
     const b = boundsOf(sel);
     c.save();
     c.strokeStyle = '#2563eb';
-    c.lineWidth = Math.max(1, this.view.scale);
-    c.setLineDash?.([6 * this.view.scale, 4 * this.view.scale]);
+    c.lineWidth = Math.max(1, this.scale());
+    c.setLineDash?.([6 * this.scale(), 4 * this.scale()]);
     c.strokeRect(b.x, b.y, b.w, b.h);
     c.setLineDash?.([]);
-    const hs = 5 * this.view.scale;
+    const hs = 5 * this.scale();
     c.fillStyle = '#2563eb';
     for (const h of handlesOf(sel)) c.fillRect(h.x - hs, h.y - hs, hs * 2, hs * 2);
     c.restore();
@@ -403,9 +410,9 @@ export class EditorController {
     c.fillRect(0, y, x, h);                 // left band
     c.fillRect(x + w, y, W - (x + w), h);   // right band
     c.strokeStyle = '#22c55e';
-    c.lineWidth = Math.max(2, this.view.scale * 2);
+    c.lineWidth = Math.max(2, this.scale() * 2);
     c.strokeRect(x, y, w, h);
-    const hs = 5 * this.view.scale;
+    const hs = 5 * this.scale();
     c.fillStyle = '#22c55e';
     for (const hnd of cornerHandles(this.cropRect)) c.fillRect(hnd.x - hs, hnd.y - hs, hs * 2, hs * 2);
     c.restore();
